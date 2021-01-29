@@ -1,6 +1,6 @@
-use crate::{chain::Chain, expr::Expression, MsgType};
+use crate::{chain::Chain, expr::Expression, MsgType, ProtoFamily};
 use nftnl_sys::{self as sys, libc};
-use std::ffi::c_void;
+use std::ffi::{c_void, CStr, CString};
 use std::os::raw::c_char;
 
 /// A nftables firewall rule.
@@ -95,4 +95,88 @@ impl<'a> Drop for Rule<'a> {
     fn drop(&mut self) {
         unsafe { sys::nftnl_rule_free(self.rule) };
     }
+}
+
+pub fn get_rules_nlmsg(seq: u32) -> Vec<u8> {
+    let mut buffer = vec![0; crate::nft_nlmsg_maxsize() as usize];
+    unsafe {
+        let header = sys::nftnl_nlmsg_build_hdr(
+            buffer.as_mut_ptr() as *mut c_char,
+            libc::NFT_MSG_GETRULE as u16,
+            ProtoFamily::Unspec as u16,
+            libc::NLM_F_DUMP as u16,
+            seq,
+        );
+
+        let rule = try_alloc!(sys::nftnl_rule_alloc());
+
+        let rule_table = CString::new("diplonat").unwrap();
+        let rule_chain = CString::new("input").unwrap();
+
+        sys::nftnl_rule_set_str(
+          rule,
+          sys::NFTNL_RULE_TABLE as u16,
+          rule_table.as_ptr(),
+        );
+        sys::nftnl_rule_set_str(
+          rule,
+          sys::NFTNL_RULE_CHAIN as u16,
+          rule_chain.as_ptr(),
+        );
+
+        sys::nftnl_rule_nlmsg_build_payload(header, rule);        
+    };
+    buffer
+}
+
+/*
+/// A callback to parse the response for messages created with `get_tables_nlmsg`. This callback
+/// extracts a set of applied table names.
+pub fn get_rules_cb(header: &libc::nlmsghdr, rules: &mut HashSet<CString>) -> libc::c_int {
+    unsafe {
+        /*let nf_table = sys::nftnl_table_alloc();
+        let err = sys::nftnl_table_nlmsg_parse(header, nf_table);
+        if err < 0 {
+            error!("Failed to parse nelink table message - {}", err);
+            sys::nftnl_table_free(nf_table);
+            return err;
+        }
+        let table_name = CStr::from_ptr(sys::nftnl_table_get_str(
+            nf_table,
+            sys::NFTNL_TABLE_NAME as u16,
+        ))
+        .to_owned();
+        tables.insert(table_name);
+        sys::nftnl_table_free(nf_table);*/
+        let rule = try_alloc!(sys::nftnl_rule_alloc());
+        
+    };
+    return 1;
+}
+*/
+
+pub fn get_rules_cb(header: &libc::nlmsghdr, data: &mut Vec<CString>) -> libc::c_int {
+  unsafe {
+    let rule = try_alloc!(sys::nftnl_rule_alloc());
+
+    let v = vec![0; 131072];
+    let buf = CString::from_vec_unchecked(v);
+    let p = buf.into_raw();
+
+    let err = sys::nftnl_rule_nlmsg_parse(header, rule);
+    if err < 0 {
+        error!("Failed to parse nelink table message - {}", err);
+        sys::nftnl_rule_free(rule);
+        return err;
+    }
+
+    sys::nftnl_rule_snprintf(p, 131072, rule, nftnl_sys::NFTNL_OUTPUT_XML, 0);
+    let fr = CString::from_raw(p);
+    
+    let s = fr.into_string().unwrap();
+    println!("{}", s);
+
+  }
+
+  return 1;
 }
