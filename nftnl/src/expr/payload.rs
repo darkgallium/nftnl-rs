@@ -8,7 +8,7 @@ trait HeaderField {
 }
 
 /// Payload expressions refer to data from the packet's payload.
-#[derive(Copy, Clone, Eq, PartialEq)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub enum Payload {
     LinkLayer(LLHeaderField),
     Network(NetworkHeaderField),
@@ -23,6 +23,7 @@ impl Payload {
             Payload::Transport(_) => libc::NFT_PAYLOAD_TRANSPORT_HEADER as u32,
         }
     }
+
 }
 
 impl HeaderField for Payload {
@@ -66,7 +67,7 @@ impl Expression for Payload {
     }
 }
 
-#[derive(Copy, Clone, Eq, PartialEq)]
+#[derive(Debug,Copy, Clone, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum LLHeaderField {
     Daddr,
@@ -94,7 +95,7 @@ impl HeaderField for LLHeaderField {
     }
 }
 
-#[derive(Copy, Clone, Eq, PartialEq)]
+#[derive(Debug,Copy, Clone, Eq, PartialEq)]
 pub enum NetworkHeaderField {
     Ipv4(Ipv4HeaderField),
     Ipv6(Ipv6HeaderField),
@@ -118,7 +119,7 @@ impl HeaderField for NetworkHeaderField {
     }
 }
 
-#[derive(Copy, Clone, Eq, PartialEq)]
+#[derive(Debug,Copy, Clone, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum Ipv4HeaderField {
     Ttl,
@@ -149,7 +150,7 @@ impl HeaderField for Ipv4HeaderField {
     }
 }
 
-#[derive(Copy, Clone, Eq, PartialEq)]
+#[derive(Debug,Copy, Clone, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum Ipv6HeaderField {
     NextHeader,
@@ -180,7 +181,7 @@ impl HeaderField for Ipv6HeaderField {
     }
 }
 
-#[derive(Copy, Clone, Eq, PartialEq)]
+#[derive(Debug,Copy, Clone, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum TransportHeaderField {
     Tcp(TcpHeaderField),
@@ -208,7 +209,7 @@ impl HeaderField for TransportHeaderField {
     }
 }
 
-#[derive(Copy, Clone, Eq, PartialEq)]
+#[derive(Debug,Copy, Clone, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum TcpHeaderField {
     Sport,
@@ -233,7 +234,7 @@ impl HeaderField for TcpHeaderField {
     }
 }
 
-#[derive(Copy, Clone, Eq, PartialEq)]
+#[derive(Debug,Copy, Clone, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum UdpHeaderField {
     Sport,
@@ -261,7 +262,7 @@ impl HeaderField for UdpHeaderField {
     }
 }
 
-#[derive(Copy, Clone, Eq, PartialEq)]
+#[derive(Debug,Copy, Clone, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum Icmpv6HeaderField {
     Type,

@@ -1,4 +1,7 @@
-use crate::{chain::Chain, expr::Expression, MsgType, ProtoFamily};
+use crate::{chain::Chain, MsgType, ProtoFamily};
+use crate::{expr::{self, Expression}};
+use crate::expr::meta::Meta;
+use crate::expr::payload::{self, Payload};
 use nftnl_sys::{self as sys, libc};
 use std::ffi::{c_void, CStr, CString};
 use std::os::raw::c_char;
@@ -129,37 +132,128 @@ pub fn get_rules_nlmsg(seq: u32) -> Vec<u8> {
     buffer
 }
 
-/*
-/// A callback to parse the response for messages created with `get_tables_nlmsg`. This callback
-/// extracts a set of applied table names.
-pub fn get_rules_cb(header: &libc::nlmsghdr, rules: &mut HashSet<CString>) -> libc::c_int {
-    unsafe {
-        /*let nf_table = sys::nftnl_table_alloc();
-        let err = sys::nftnl_table_nlmsg_parse(header, nf_table);
-        if err < 0 {
-            error!("Failed to parse nelink table message - {}", err);
-            sys::nftnl_table_free(nf_table);
-            return err;
-        }
-        let table_name = CStr::from_ptr(sys::nftnl_table_get_str(
-            nf_table,
-            sys::NFTNL_TABLE_NAME as u16,
-        ))
-        .to_owned();
-        tables.insert(table_name);
-        sys::nftnl_table_free(nf_table);*/
-        let rule = try_alloc!(sys::nftnl_rule_alloc());
-        
-    };
-    return 1;
+extern "C" fn expr_cb(e: *mut sys::nftnl_expr, data: *mut libc::c_void) -> libc::c_int {
+  let v: &mut Vec<*mut sys::nftnl_expr> = unsafe { &mut *(data as *mut Vec<*mut sys::nftnl_expr>) };
+  v.push(e);
+  return 1;
 }
-*/
 
-pub fn get_rules_cb(header: &libc::nlmsghdr, data: &mut Vec<CString>) -> libc::c_int {
+fn analyze_meta(expr: (*mut sys::nftnl_expr, *mut sys::nftnl_expr)) -> (Meta, u16) {
+  // check l4proto
+
+  let (data, _size) = unsafe {
+    let mut size: u32 = 0;
+    let d: *const c_void = sys::nftnl_expr_get(
+        expr.1,
+        sys::NFTNL_EXPR_CMP_DATA as u16,
+        &mut size as *mut u32,
+    );
+  
+    (d, size)
+  };
+
+  // check data type
+  let data = unsafe { *(data as *const u16) };
+
+  (Meta::L4Proto, data)
+
+}
+
+fn analyze_payload(expr: (*mut sys::nftnl_expr, *mut sys::nftnl_expr), l4proto: u16) -> (Payload, u16) {
+  let base = unsafe { sys::nftnl_expr_get_u32(expr.0, sys::NFTNL_EXPR_PAYLOAD_BASE as u16) };
+  let h = libc::NFT_PAYLOAD_TRANSPORT_HEADER as u32;
+  if base == h {
+
+    let (data, _size) = unsafe {
+      let mut size: u32 = 0;
+      let d: *const c_void = sys::nftnl_expr_get(
+          expr.1,
+          sys::NFTNL_EXPR_CMP_DATA as u16,
+          &mut size as *mut u32,
+      );
+
+      (d, size)
+    };
+  
+    // check data type
+    let data = unsafe { *(data as *const u16) };
+    let data = ((data & 0x00ff) << 8) + ((data & 0xff00) >> 8);
+
+    // we assume tcp or udp here
+    let offset  = unsafe { sys::nftnl_expr_get_u32(expr.0, sys::NFTNL_EXPR_PAYLOAD_OFFSET as u16) };    
+
+    let field = match l4proto { 
+      6 => {
+        if offset == 0 { // sport
+          Payload::Transport(payload::TransportHeaderField::Tcp(payload::TcpHeaderField::Sport))
+        }
+        //if offset == 2 { // dport
+        else {
+          Payload::Transport(payload::TransportHeaderField::Tcp(payload::TcpHeaderField::Dport)) 
+        }
+      },
+
+      17 => { // 17 = udp
+        if offset == 0 { // sport
+          Payload::Transport(payload::TransportHeaderField::Udp(payload::UdpHeaderField::Sport))
+        } 
+        //if offset == 2 { // dport
+        else {
+          Payload::Transport(payload::TransportHeaderField::Udp(payload::UdpHeaderField::Dport)) 
+        }
+      },
+  
+      _ => panic!("payload proto not supported")
+    };
+
+    (field, data)
+
+  } else {
+    panic!("payload expr {} not implemented", base);
+  }
+}
+
+fn analyze_rule(expressions: &Vec<*mut sys::nftnl_expr>) {
+  
+  let mut l4proto: u16 = 0;
+  let typ: u16 = 0;
+  let port: u16 = 0;
+  let mut i = 0;
+
+  while i < expressions.len() {
+    let e_name = unsafe {
+         CStr::from_ptr(sys::nftnl_expr_get_str(expressions[i], sys::NFTNL_EXPR_NAME as u16)).to_owned().into_string().unwrap()
+    };
+
+    match e_name.as_str() {
+      "meta" => {
+        if let (Meta::L4Proto, x) = analyze_meta((expressions[i], expressions[i+1])) {
+          println!("meta l4proto {}", x);
+          l4proto = x;
+        }
+
+        i+=2;
+      },
+
+      "payload" => {
+        println!("{:?}", analyze_payload((expressions[i], expressions[i+1]), l4proto));
+        i+=2;
+      },
+      _ => {
+        i+=2;
+      } 
+    }
+
+  }
+ 
+}
+
+pub fn get_rules_cb(header: &libc::nlmsghdr, _data: &mut Vec<CString>) -> libc::c_int {
   unsafe {
     let rule = try_alloc!(sys::nftnl_rule_alloc());
 
-    let v = vec![0; 131072];
+
+    let v = vec![0; 4096];
     let buf = CString::from_vec_unchecked(v);
     let p = buf.into_raw();
 
@@ -170,9 +264,17 @@ pub fn get_rules_cb(header: &libc::nlmsghdr, data: &mut Vec<CString>) -> libc::c
         return err;
     }
 
-    sys::nftnl_rule_snprintf(p, 131072, rule, nftnl_sys::NFTNL_OUTPUT_XML, 0);
-    let fr = CString::from_raw(p);
+
+    let mut v2: Vec<*mut sys::nftnl_expr> = Vec::new();    
+    sys::nftnl_expr_foreach(rule, Some(expr_cb), &mut v2 as *mut _ as *mut libc::c_void);
+    println!("{:?}", v2);
+    //println!("{}", s);
+
+    analyze_rule(&v2);
+
+    sys::nftnl_rule_snprintf(p, 4096, rule, sys::NFTNL_OUTPUT_DEFAULT, 0);
     
+    let fr = CString::from_raw(p);
     let s = fr.into_string().unwrap();
     println!("{}", s);
 
@@ -180,3 +282,4 @@ pub fn get_rules_cb(header: &libc::nlmsghdr, data: &mut Vec<CString>) -> libc::c
 
   return 1;
 }
+

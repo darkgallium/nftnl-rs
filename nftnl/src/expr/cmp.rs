@@ -38,6 +38,20 @@ impl CmpOp {
             Gte => libc::NFT_CMP_GTE as u32,
         }
     }
+
+    /*pub fn from_raw(nft_cmp_no: u32) -> Self {
+        use self::CmpOp::*;                  
+        match nft_cmp_no as i32 {
+            libc::NFT_CMP_EQ  => Eq,
+            libc::NFT_CMP_NEQ => Neq,
+            libc::NFT_CMP_LT  => Lt,
+            libc::NFT_CMP_LTE => Lte,
+            libc::NFT_CMP_GT  => Gt,
+            libc::NFT_CMP_GTE => Gte,
+            _ => panic!("unhandled cmpop type {}", nft_cmp_no)
+        }
+    }*/
+
 }
 
 /// Comparator expression. Allows comparing the content of the netfilter register with any value.
@@ -46,12 +60,33 @@ pub struct Cmp<T: ToSlice> {
     data: T,
 }
 
+/*pub fn cmp_u16_from_expr(expr: *mut sys::nftnl_expr) -> Cmp<u16> {
+  let raw_op = unsafe { sys::nftnl_expr_get_u32(expr, sys::NFTNL_EXPR_CMP_OP as u16) };
+  let op = CmpOp::from_raw(raw_op);
+
+  let (data, _size) = unsafe {
+    let mut size: u32 = 0;
+    let d: *const c_void = sys::nftnl_expr_get(
+        expr,
+        sys::NFTNL_EXPR_CMP_DATA as u16,
+        &mut size as *mut u32,
+    );
+  
+    (d, size)
+  };
+
+  let data = unsafe { *(data as *const u16) };
+  Cmp { op, data }
+}*/
+
+
 impl<T: ToSlice> Cmp<T> {
     /// Returns a new comparison expression comparing the value loaded in the register with the
     /// data in `data` using the comparison operator `op`.
     pub fn new(op: CmpOp, data: T) -> Self {
         Cmp { op, data }
     }
+
 }
 
 impl<T: ToSlice> Expression for Cmp<T> {
